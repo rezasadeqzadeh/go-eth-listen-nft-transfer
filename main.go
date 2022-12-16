@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math/big"
+	"os"
 	"strings"
 
 	"github.com/ethereum/go-ethereum"
@@ -16,10 +17,11 @@ import (
 )
 
 func main() {
-	listener()
+	//pullEvent()
+	pushEvent()
 }
 
-func listener() {
+func pushEvent() {
 	client, err := ethclient.Dial("wss://api.avax-test.network/ext/bc/C/ws")
 	if err != nil {
 		log.Fatal(err)
@@ -27,15 +29,14 @@ func listener() {
 
 	// Keck256 Topic : 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
 	//Transfer (index_topic_1 address from, index_topic_2 address to, index_topic_3 uint256 tokenId)
-	topic := common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
-	topics := [][]common.Hash{
-		{topic},
-	}
-	address := common.HexToAddress("0x630e847b411e98b5b9b0aa919029c92ff7cb5059")
-	addresses := []common.Address{address}
+	//topic := common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
+	//topics := [][]common.Hash{
+	//	{topic},
+	//}
+
 	query := ethereum.FilterQuery{
-		Topics:    topics,
-		Addresses: addresses,
+		// Topics:    topics,
+		// Addresses: addresses,
 	}
 	logs := make(chan types.Log)
 	sub, err := client.SubscribeFilterLogs(context.Background(), query, logs)
@@ -43,6 +44,7 @@ func listener() {
 		log.Fatal(err)
 	}
 	fmt.Println("listening to the network events")
+	contractCollections := make(map[string]bool)
 	for {
 		select {
 		case err = <-sub.Err():
@@ -52,11 +54,32 @@ func listener() {
 				log.Println("Failed to unpack")
 				continue
 			}
-			from := common.BytesToAddress(eventLog.Topics[1].Bytes())
-			to := common.BytesToAddress(eventLog.Topics[2].Bytes())
+			if len(eventLog.Topics) > 1 {
+				from := common.BytesToAddress(eventLog.Topics[1].Bytes())
+				log.Println("From", from)
+			}
+			if len(eventLog.Topics) > 2 {
+				to := common.BytesToAddress(eventLog.Topics[2].Bytes())
+				log.Println("To", to)
+			}
+			log.Println("Contract:", eventLog.Address)
+			log.Println("-----------------------------------")
 
-			log.Println("From", from)
-			log.Println("To", to)
+			if !contractCollections[eventLog.Address.String()] {
+				contractCollections[eventLog.Address.String()] = true
+			}
+			fmt.Println("num contracts:", len(contractCollections))
+			if len(contractCollections) >= 500 {
+				f, err := os.Create("/tmp/addrs")
+				if err != nil {
+					log.Fatal(err)
+				}
+				for k, _ := range contractCollections {
+					fmt.Fprintln(f, k)
+				}
+				f.Close()
+				close(logs)
+			}
 		}
 	}
 }
